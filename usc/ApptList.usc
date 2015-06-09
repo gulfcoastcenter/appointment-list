@@ -510,7 +510,8 @@ _MAIN:
       if showEvents = "Y" then
          $row()   $col("left",,,"5")   $text(eventTitle, "h6")
          ecnt = 0
-         do while ecnt++ < $maxarray(e.case.no[])
+         'do while ecnt++ < $maxarray(e.case.no[])
+         do while ecnt++ < $maxarray(e.key[])
             t = "<tr id='headrow-" + e.case.no[ecnt] + "-" 
               + $replace(" ", "0", $fmt(e.start[ecnt],"HHMM")) 
               + "-" + $replace(" ","0", $fmt(e.cl.dur[ecnt], "HHMM")) + "' class='headrow' >"
@@ -529,7 +530,7 @@ _MAIN:
             addRow(e.case.no[ecnt], e.staff[ecnt], sDate, e.start[ecnt], e.cl.dur[ecnt], e.desc[ecnt],
                            e_findate[ecnt], e.att[ecnt], e.recip[ecnt],,, scheduleOnly, allowFinance,
                            allowPnote, b_e_banote[ecnt], b_e_finass[ecnt],
-                           e_note[], e_label[], l-dst, d_name[], d_label[], e.proj[ecnt], modeprompt)
+                           e_note[], e_label[], l-dst, d_name[], d_label[], e.proj[ecnt], modeprompt, e.dur[ecnt])
             $ctag("</tr>")
          enddo
       endif
@@ -868,22 +869,27 @@ goback
 '-------------------------------
 ADDPTO:
 
-   if getPTO(staff_id, sDate, p.time[ecnt], p.dur[ecnt]) = "CANCEL" then
-      $clear(p.time[ecnt], p.dur[ecnt])
+   ecnt = $maxarray(e.case.no[], e.key[]) + 1
+   if getPTO(staff_id, sDate, e.ru[ecnt], e.start[ecnt], e.dur[ecnt]) = "CANCEL" then
+      $clear(e.ru[ecnt], e.start[ecnt], e.dur[ecnt])
       goback
    endif
 
-   ecnt = $maxarray(p.cl[], p.key[]) + 1
-   p.staff[ecnt] = staff_id
-   p.date[ecnt] = sDate
-   p.sam[ecnt] = 9000
-   pe.ss[ecnt] = $operstaffid
-   pe.sd[ecnt] = $today
-   pe.st[ecnt] = $timenow
-   eventLib:setCurrentEvents(p.key[ecnt])
-   eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
-   p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
-   pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt], p.proj[ecnt])
+   $clear(e.case.no[ecnt])
+   e.cl.dur[ecnt] = 0
+   e.staff[ecnt] = staff_id
+   e.date[ecnt] = sDate
+   e.ser[ecnt] = 9000
+   e.desc[ecnt] = "PTO"
+   e.loc[ecnt] = 3
+   e.att[ecnt] = 9
+   e.recip[ecnt] = 9
+   'pe.ss[ecnt] = $operstaffid
+   'pe.sd[ecnt] = $today
+   'pe.st[ecnt] = $timenow
+   eventLib:setCurrentEvents(e.key[ecnt])
+   eventLib:putEventInfo(e.key[ecnt], e.case.no[ecnt], e.staff[ecnt], e.date[ecnt], e.start[ecnt], e.dur[ecnt],
+   e.desc[ecnt], e.loc[ecnt], e.ru[ecnt], e.ser[ecnt], e.cl.dur[ecnt], e.recip[ecnt], e.att[ecnt])
 goback
 
 '-------------------------------
@@ -1376,7 +1382,7 @@ end getAttCode
 '-------------------------------
 dynamic FUNCTION addRow(clientID, staffID, sDate, sTime, Duration, Description,
                          FinDate, attendance, recipient, sStaff, schDate, scheduleOnly,
-                         finlink, pnotelink, b_note, b_fin, e_note[], e_label[],d-lib, d_name[], d_label[],project, modeprompt) is null
+                         finlink, pnotelink, b_note, b_fin, e_note[], e_label[],d-lib, d_name[], d_label[],project, modeprompt, staff_dur) is null
 clientID    is x
 staffID     is x
 sDate       is d
@@ -1401,6 +1407,7 @@ d_label[]      is x
 d-lib          is b
 project        is b
 modeprompt     is x
+staff_dur      is t
 'd_list         is dstlist
 
 $$pp.rec    is h
@@ -1443,6 +1450,9 @@ endif
          (void)$dbalpha(staffDB, staffID, string)
          $col("left")   $text($fmt(staffID,string, "(~~~~) ~~~~~~~~~~~~~~~~~~~~~~~~~"))
          $col("left") $text($format(sTime, "HH:MM AP"))
+         if Duration !dp then
+            Duration = staff_dur
+         endif
          $col("left") $text($format(Duration, "HH:MM"))
          if modeprompt dp then
             $col("left") $text($pj(project))
@@ -2122,19 +2132,32 @@ dynamic FUNCTION getNewStaffDay(newStaff,newDate,title) is null
    enddo
 end getNewStaffDay
 
-dynamic function getPTO(staff, edate, etime, edur) is x
+dynamic function getPTO(staff, edate, eru, etime, edur) is x
 
 staff       is x
 edate       is d
+eru         is b
 etime       is t
 edur        is t
 
 title       is x
 
-$allowupdate(staff, edate, etime, edur)
+err[]       is x
+temp[]      is x
+string      is x
 
+usreventLib is b
+
+$allowupdate(staff, edate, eru, etime, edur)
+
+if $loadlib(usreventLib, "lib_USREVENT") > 0 then
+   $brmsg("Unable to load User Event Library. Please Contact MIS", 1, "WEC")
+   return
+endif
 
 title = "Set Staff PTO Time"
+
+$clear(err[])
 
 do while 1 = 1
    'get the new PTO Time
@@ -2144,6 +2167,15 @@ do while 1 = 1
    $tag("<center>")
    $text(title,"h1")
    $br(2)
+   'Display error message 
+   if err[] dp then
+      (void)$putds(err[], string, "|")
+      string = $replace("|", "{/li}{li}", string)
+      string = "{ul}{li}" + string + "{/li}{/ul}"
+      $fieldset("Note Entry Errors","error")
+      $text(string)
+      $endfieldset()
+   endif
    $table(1,"tight","width='50%'")
    $row()
       $col()   $text("Doctor")
@@ -2152,6 +2184,10 @@ do while 1 = 1
    $row()
       $col()   $text("Date:")
       $col()   $textbox(edate, "CAL",10,10,"Y")
+
+   $row()
+      $col()   $text("RU:")
+      $col()   $textbox(eru, "RU",5,5,"Y")
 
    $row()
       $col()   $text("Start Time:")
@@ -2165,8 +2201,16 @@ do while 1 = 1
    $tag("</center>")
    $sendform()
 
-   if $endbutton dp then 
-      getPTO = $endbutton
-      return 
-   endif
+   getPTO = $endbutton
+   select $endbutton
+      case "SUBMIT" 
+         err[] = usreventLib:check_pe_overlap("S", staff, edate, etime, edur)
+         temp[] = usreventLib:check_er_overlap("S", staff, 9000, edate, etime, edur)
+         (void)$arraymerge(err[], temp[])
+         if err[] !dp then
+            return 
+         endif
+      case other  return
+   endselect
 enddo
+end getPTO
