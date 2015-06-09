@@ -223,6 +223,7 @@ b_reSch[]      is x
 b_comp[]       is x
 b_noShow[]     is x
 b_addPE        is x        'add planned event
+b_addPTO       is x
 b_addER        is x        'add event
 b_MassRS       is x        'mass reschedule
 b_eDel[]       is x
@@ -248,6 +249,7 @@ cancelCodes    is x  cancelCodes = "4,5,6"
 Title          is x  title = "Appointment List"
 eventEnter     is x  eventEnter = "Walk-In"
 apptEnter      is x  apptEnter = "New Appointment"
+ptoEnter       is x  ptoEnter = "New PTO"
 apptTitle      is x  apptTitle = "Scheduled Appointments"
 eventTitle     is x  eventTitle = "Completed Appointments"
 'security flags
@@ -324,7 +326,7 @@ return
 _MAIN:
    do while 1 = 1
       $clear(b_del[], b_eDel[], b_eUpdate[], b_reSch[], b_comp[], sched_btn[],
-               b_search, $endbutton, b_addPE, b_addER, b_MassRS, b_noShow[],
+               b_search, $endbutton, b_addPE, b_addPTO, b_addER, b_MassRS, b_noShow[],
                b_e_banote[], b_e_finass[], b_pe_banote[], b_pe_finass[])
       $submitopt("off", "Refresh")
       $cancelopt("off", "Quit")
@@ -386,6 +388,7 @@ _MAIN:
                $col("center",,,"4")
                if allowSched = "Y" then
                   $submit(b_addPE, apptEnter)
+                  $submit(b_addPTO, ptoEnter)
                endif
                if scheduleOnly != "Y" then
                   $submit(b_addER, EventEnter)
@@ -549,6 +552,7 @@ _MAIN:
                                  $clear(searchFlag)
                case b_addPE      'new schedule
                                  gosub ADDPE
+               case b_addPTO     gosub ADDPTO
                case b_MassRS     'reschedule everyone
                                  gosub MASSUPDATE
                case b_addER      ecnt = $maxarray(e.key[], e.staff[], e.ser[], e.ru[]) + 1
@@ -859,6 +863,27 @@ ADDPE:
    else
       $clear(p.cl[ecnt], p.staff[ecnt], p.noteType[ecnt], p.date[ecnt], pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt])
    endif
+goback
+
+'-------------------------------
+ADDPTO:
+
+   if getPTO(staff_id, sDate, p.time[ecnt], p.dur[ecnt]) = "CANCEL" then
+      $clear(p.time[ecnt], p.dur[ecnt])
+      goback
+   endif
+
+   ecnt = $maxarray(p.cl[], p.key[]) + 1
+   p.staff[ecnt] = staff_id
+   p.date[ecnt] = sDate
+   p.sam[ecnt] = 9000
+   pe.ss[ecnt] = $operstaffid
+   pe.sd[ecnt] = $today
+   pe.st[ecnt] = $timenow
+   eventLib:setCurrentEvents(p.key[ecnt])
+   eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+   p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
+   pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt], p.proj[ecnt])
 goback
 
 '-------------------------------
@@ -2096,3 +2121,52 @@ dynamic FUNCTION getNewStaffDay(newStaff,newDate,title) is null
       if b_prev dp then newDate--, newDate2-- endif
    enddo
 end getNewStaffDay
+
+dynamic function getPTO(staff, edate, etime, edur) is x
+
+staff       is x
+edate       is d
+etime       is t
+edur        is t
+
+title       is x
+
+$allowupdate(staff, edate, etime, edur)
+
+
+title = "Set Staff PTO Time"
+
+do while 1 = 1
+   'get the new PTO Time
+   $submitOpt("off", "Next")
+   $cancelOpt("off", "Cancel")
+   $form()
+   $tag("<center>")
+   $text(title,"h1")
+   $br(2)
+   $table(1,"tight","width='50%'")
+   $row()
+      $col()   $text("Doctor")
+      $col()   $textbox(staff, "DB``3",6,6,"Y") $editmsg(staff)
+   
+   $row()
+      $col()   $text("Date:")
+      $col()   $textbox(edate, "CAL",10,10,"Y")
+
+   $row()
+      $col()   $text("Start Time:")
+      $col()   $textbox(etime, "TIME",5,5,"Y")
+
+   $row()
+      $col()   $text("Duration:")
+      $col()   $textbox(edur, "DUR",5,5,"Y")
+   $endtable(1)
+   
+   $tag("</center>")
+   $sendform()
+
+   if $endbutton dp then 
+      getPTO = $endbutton
+      return 
+   endif
+enddo
