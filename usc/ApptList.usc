@@ -1,0 +1,2098 @@
+'THIS SCRIPT IS USED TO DISPLAY PLANNED EVENTS FOR BA STAFF.
+'AUTHOR : BOBBY DORRIS
+'DATE: 6/19/06
+'*******************************************************************************
+' {{{ REVISIONS
+' TJM 20110119 2.0.0 MASSIVE OVERHAUL ^__^
+'  + Added re-schedule planned events functionality
+'     this creates a 'cancelation' event for the original planned event
+'     and creates a new planned event. the new planned event is edited
+'     to make sure it does not overlap any other planned events
+'  + Added event update functionality
+'     users have the ability to change event information other than staff or client
+'     changes have to pass PNE validation
+'  + Added Planned Event Completion functionality
+'     users can 'complete' planned events. This removed the planned event and
+'     inserts a new event. The new event must pass validation
+'  + Added Delete (planned)event functionality = lets users delete pe/er s
+'  + All new event information is validated through PNEENTRY1
+'  - Removed seperate user input form for defining staff id
+'  + added staff_id and scriptid as a script argument
+'  + added select table to main form for selecting staff and date of events
+'  + changed event and planned event get method to use lib_EventIO
+'  + added 'addRow' function to prevent duplicate codeing
+'  - cleaned up formating
+'  - Removed unused variables
+' TJM 20110210 .01 Lotsa new functionality
+'  + Schedule a new appointment
+'  + Reschedule an entire day of appointments
+'  + Set event/pe desc to have staff id and date of change for sppointment changes
+'  + validation for cancel attendance codes
+' TJM 20110228 .02
+'  + Fixed New Appointment Functionality (pe's now added correctly)
+'  + Fixed Walk-In Functionality (Now pulls correct note type for validation)
+'  + Added Future Event Update Functionality (User can only change Att Code)
+'  + Added Link to BA Progress note
+' TJM 20110228 .03
+'  + Fixed p.cldur prefill issue when completing events
+'  + Allow Users to update today's canceled events
+'  + Added staff and date to report title
+'  + Added No Show/Cancel button
+'  + Changed 'C' Complete Appointment to 'A' Appointment Reconcile
+' TJM 20110323 .04
+'  + Added Parmfile argument
+'  + Added inc_getParm and getParm() call
+'  + Added allowUpdateDay parameter. Set default to 2 days
+'     events over 2 days old cannot be updated
+'  + Added e.bill.flg[] - events that have been billed cannot be updated
+'  + Added scheduleOnly parameter. Set default to "Y"
+'     if parm is set to "Y" then staff cannot reconcile or update events but can schedule
+'     and reschedule new appointments
+' TJM 20110330 .05
+'  - Changed scheduleOnly parameter to also hide financial assessment and progress note
+'     column and buttons when set to "Y".
+' TJM 20110405 .06
+'  + added autofilling of sched staff, date and time secret pe dsts.
+'  + added staff entry of p.desc field
+' TJM 20110418 .07
+'  + Changed some wording around for Suzanne
+'  + Added the 'Notes' column for 'schedule only' users
+' TJM 20110419 .08
+'  + added APN credential to get_Notetype(). APN staff will get the same notetype as MDs
+' TJM 20110919 .09  for: Suzanne Jones
+'  + Added 'c - cancel appointment' functionality for schedule only configuration
+' TJM 20110922 .10  for: Suzanne Jones
+'  + Maked er/pe description field = 'n/a' if !dp if the pnote option is turned on.
+'     If description was !dp then the button to launch notes was hidden.
+' TJM 20111031 .666  !!HAPPY HALLOWEEN!!
+'  ~ Changed $uscwinbutton calls to $submits with calls to the scripts to fire. THis is to
+'     fix whatever the latest set of patches broke.
+'  + added $checkoutput to description field to keep browser from choking
+' TJM 20120203 .13 -lucky thirteen For: Suzanne Jones / Nursing Staff
+'  + added note_script, note_parm, & note_opt variable / parameters to point to diferent
+'     scripts when clicking the b_pe_note and b_e_note
+' TJM 20120403 .14 For Sharlene Bohr & Juanita Nolly
+'  ~ moved preform / script init stuff to _INIT routine.
+'  ~ moved library loading to LOADLIB routine
+'  + added CLEANUP routine to clear all loaded libs then re-load the ones used by this script
+'     This change is to fix some of the crashes caused by uscript not handling libraries called
+'     by other scripts clean up very well.
+'  + added day of week to heading. (dev item 0117 http://wiki/foswiki/bin/view/MIS/Dev/Item0117)
+'RLE 20120803 .015
+'  - update version string/date
+'  - remove lib_REPORTS variable
+'  - move call to log_prog to _INIT to only be called once
+'  - remove $endform
+'  - add $isnrgfrom in CANCELPE in order for ISN's to be created
+'  - prompt staff for cancellation reason and write to ISN
+'RLE 20120806 .016
+'  - moved cancellation logic to functions get/setCancel
+'  - added support for tracking cancellations on mass updates
+'RLE 20120816 .017
+'  - added rmi javascript to display PE's for the target staff/day during mass re-schedule
+'TJM 20120822 .018
+'  - commented out logic to prevent cancellation the day of service
+'RLE 20120824 .019
+'  - make all functions dynamic
+'  - fix looping in mass re-schedule
+'  - fix cancel reason update in mass reschedule. (needed record hdr)
+'TJM 20120919 .020 For: Suzanne Jones
+'  + new subroutine: CANCELER - fixes problem with b_eUpdate[] and canceled appointments.
+'TJM 20120921 2.1.0
+'  + integrated quicklist library.
+'TJM 20130107 3.0
+'  ~ Rename
+'  ~ Standard argument string
+'  + e.proj and p.proj support for event manipulation function
+'  + FORCEPROJ parameter for setting the default project code
+'  + MODEPROMPT parameter for toggling 'MODE' field in PNEENTRY1 script (use value 'PJ')
+'TJM 20130108 3.0.1 - html element id bug
+'  ^ Fix html element id overlap issue when one day includes active and canceled appointments for the same client
+'TJM 20130108 3.0.1.1 - dct lookup fix
+'  ^ changed addRow() calls to $dcv to $dct so dct description was returned for display instead of return code
+'TJM 20130109 3.0.1.2 - for: Sandy Patterson
+'  + added pe.desc display back to header row.
+'RLE 20130110 3.1.0.0 - for: sandy
+'  + added a more modular PE preview function getNewStaffDay
+'    to be used by both massChangeForm and linked from the main page
+'    read-only preview and update for a new staff/day
+'  ~ moved PE preview RMI/JS to global var 
+'  ~ moved all %preload to __preload
+'  + enabled cancellation reason capture in reschedule (UPDATEDATA)
+'  + enabled cancellation reason capture in event update (CANCELER)
+'  - removed parmlines[] from changeForm()
+'  ~ getCancel:
+'    allow an existing ISN to be passed in to pre-load text
+'    new 'exit' flag added to allow exit.  which generates RC:9
+'TJM 20130116 3.1.0.1 - Bug fix For: Vonetta
+'  ^ fixed the 'refresh' button so that data actually gets refreshed on page refresh
+'RLE 20130228 3.1.0.2
+'  + add available time display in dayPreview()
+'  + add dayAvailable() function.  Currently not used in lieu of
+'    available time funcitonality added in DayPreview()
+'RLE 20130228 3.1.0.3
+'  ~ fix available timeframe formatting
+'    need to delay js by 250ms so .2 is 0:20 vs 0:02
+'RLE 20130424 3.1.0.4
+'  + add multi-day preview
+'  + add 'please wait / loading' msg in daypreview
+' }}}
+' {{{ TODO:
+'  - figure out what the heck the sched_btn is supposed to do
+' }}}
+' {{{ Abreviations
+' TJM - Tim Jim Markello
+' RLE - Robert Edeker
+' }}}
+
+%define ClientDB 2
+%define StaffDB 3
+%define d_CancelAtt "4,5"
+
+%define medication_ru 5130
+%define risperdal_ru 5140
+
+%version 03.1.0.4 04/24/13 GCC
+
+%global js-pePreview
+
+start ApptList(parmfile, option, staff_id, retcode) ', sdate, parmfile)
+
+'**********************VARIABLE DELCARATIONS************************************
+'arguments
+staff_id       is alpha
+sdate          is date
+parmfile       is x
+option         is x
+retcode        is b
+rc             is b
+T              is x
+ptr            is i
+'EVENT VARIABLES
+e.key[]        is x
+e.case.no[]    is alpha    'EVENT CASE # VARIABLE
+e.ser[]        is binary   'EVENT SERVICE VARIABLE
+e.date[]       is d
+e.start[]      is time     'EVENT START TIME VARIABLE
+e.dur[]        is time     'EVENT DURATION VARIABLE
+e.cl.dur[]     is time     'EVENT CLIENT DURATION VARIABLE
+e.ru[]         is binary   'EVENT RU VARIABLE
+e.loc[]        is alpha    'EVENT LOCATION CODE VARIABLE
+e.att[]        is alpha    'EVENT ATTENDANCE CODE VARIABLE
+e.recip[]      is x
+e.desc[]       is alpha
+e.staff[]      is x
+e.noteType[]   is x
+e.lof[]        is x
+e.bill.flg[]   is x
+e.isn.key[]    is x
+e_findate[]    is alpha    'financial date in private pay record
+e.proj[]       is b
+' planned event variables
+p.key[]        is x
+p.cl[]         is alpha    'EVENT CASE # VARIABLE
+p.sam[]        is binary   'EVENT SERVICE VARIABLE
+p.date[]       is d
+p.time[]       is time     'EVENT START TIME VARIABLE
+p.dur[]        is time     'EVENT DURATION VARIABLE
+p.cl.dur[]     is time     'EVENT CLIENT DURATION VARIABLE
+p.ru[]         is binary   'EVENT RU VARIABLE
+p.loc[]        is alpha    'EVENT LOCATION CODE VARIABLE
+p.desc[]       is alpha
+p.staff[]      is x
+p.recip[]      is x
+p.att[]        is x
+p.lof[]        is x
+pe.ss[]        is x
+pe.sd[]        is d
+pe.st[]        is t
+p.notetype[]   is x
+p.proj[]       is b
+
+'temporary PE vars for mass update ISN Processing
+t.cl[]         is x
+t.sam[]        is b
+t.time[]       is t
+o_mass         is x
+
+'Buttons Variables
+sched_btn[]    is alpha    'currently not in use - not sure what this was supposed to do...
+b_search       is x
+b_del[]        is x
+b_reSch[]      is x
+b_comp[]       is x
+b_noShow[]     is x
+b_addPE        is x        'add planned event
+b_addER        is x        'add event
+b_MassRS       is x        'mass reschedule
+b_eDel[]       is x
+b_eUpdate[]    is x
+b_e_banote[]     is x
+note_script       is x
+note_parm         is x
+note_opt          is x
+b_e_finass[]     is x
+b_pe_banote[]  is x
+b_pe_finass[]  is x
+searchFlag     is x
+'Counters & Temp Strings Variables
+ecnt           is integer
+string         is alpha
+tempAtt        is x
+tempStaff      is x
+tempDate       is x
+maxcnt         is b
+err[]          is x
+cancelCodes    is x  cancelCodes = "4,5,6"
+'title configuration
+Title          is x  title = "Appointment List"
+eventEnter     is x  eventEnter = "Walk-In"
+apptEnter      is x  apptEnter = "New Appointment"
+apptTitle      is x  apptTitle = "Scheduled Appointments"
+eventTitle     is x  eventTitle = "Completed Appointments"
+'security flags
+allowDelete    is x
+allowUpdateDay is b  allowUpdateDay = 2
+allowSched     is x  allowSched = "Y"
+allowReSched   is x  allowReSched = "Y"
+allowCancel    is x
+scheduleOnly   is x  scheduleOnly = "N"
+selfOnly       is x  selfOnly = "N"
+staffFromDCT   is b
+allowNTselect  is b
+showSched      is x  showSched = "Y"
+showEvents     is x  showEvents = "Y"
+allowFinance   is x  allowFinance = "Y"
+allowPnote     is x  allowPnote = "Y"
+forceNoteType  is x
+modeprompt     is x
+forceProj      is x
+i              is b
+thisNoteType   is x
+sup_req        is x  'note rule supervisor required
+sup_diff       is x  'note rule differenct supervisor required
+'todo list variables
+todo_table     is x
+todo_ctable    is x
+todo_dsn       is x
+todo_cat       is x
+'quick link variables
+linklabel[]    is x
+linkscript[]   is x
+'client specific quick links
+e_note[]       is x
+e_label[]      is x
+__js           is x
+__css          is x
+'note type varaibles
+nt_code[]      is x
+nt_desc[]      is x
+nt_adult[]     is x
+nt_child[]     is x
+'library handles
+eventLib       is b
+groupLib       is b
+clientLib      is b
+usreventLib    is b
+l-link         is b
+l-dst          is b
+l-todo         is b
+newStaff       is x
+newDate        is x
+o_dayPreview   is x
+o_DayAvail     is x
+
+d_name[]       is x
+d_label[]      is x
+
+'usreventLib    is b
+jq-js          is x
+js-pePreview   is x
+
+isn.cxl.rec    is r
+isn.cxl.code   is x
+isn.cxl.txt    is dbtext
+cx_code        is x
+cx_txt         is x
+
+gosub _INIT
+gosub READDATA
+gosub _MAIN
+return
+
+'subroutines
+_MAIN:
+   do while 1 = 1
+      $clear(b_del[], b_eDel[], b_eUpdate[], b_reSch[], b_comp[], sched_btn[],
+               b_search, $endbutton, b_addPE, b_addER, b_MassRS, b_noShow[],
+               b_e_banote[], b_e_finass[], b_pe_banote[], b_pe_finass[])
+      $submitopt("off", "Refresh")
+      $cancelopt("off", "Quit")
+      $form("ENTER")
+      $clearLeftFrame()
+
+      'render the quick links if any
+      if linkLabel[] dp then
+         l-link:jquery.load()
+         $ctag("<style>table.compact{color:black;border-collapse: collapse;width:auto;}</style>")
+         l-link:list.render(linkLabel[], linkScript[])
+      endif
+      'render the todo list if we need to      
+      if l-todo dp and todo_table dp and todo_dsn dp then
+         l-todo:list.render(todo_cat, todo_dsn, todo_table, todo_ctable)
+      endif
+         
+      $ctag(__css)
+      $bstyle("link", "link")
+
+      $tag("<center>")
+      $checkbox(searchFlag, "New Search", "Y",,,"searchtable","searchtable")
+      $block("searchtable","searchtable")
+         $table("epl", "compact" , "bgcolor='lightblue'")
+            $row()   $col("right")  $text("Select Staff:", "h6")
+                     $col("left")   if selfOnly != "Y" then
+                                       $textbox(tempstaff,"DB``03",5,10) $editmsg(tempStaff)
+                                    else
+                                       (void)$dbalpha(staffdb, staff_id, string)
+                                       $text(string)
+                                    endif
+            if allowNTselect dp then
+               $row()   $col("right")  $text("Event Type:")
+                        $col("left")   $dropboxdct(thisNoteType, allowNTselect)
+            endif
+            $row()   $col("right")  'if allowDelete = "Y" then
+                                       $text("Select Date:", "h6")
+                                       $col("left")  $textbox(tempdate, "CAL")
+                                    'else
+                                    '   $col()   $text("Date:", "h6")
+                                    '   $col()   $text($fmt(sdate, "MM/DD/YYYY"), "h6")
+                                    'endif
+            $row()   $col()
+                     $col("left")   $submit(b_search, "search")
+         $endtable("epl")
+      $endblock("searchtable","searchtable")
+      $br()
+      (void)$dbalpha(3, staff_id, string)
+      if string !dp then
+         string = "All Staff"
+      endif
+      string = title + " for " + string + " on " + $fmt(sdate, "DAY MM/DD/YYYY")
+      $text(string, "h1")
+      $br()
+      $fieldset("Actions")
+         $table("actions")
+            if staff_id dp then
+               $row()
+               $col("center",,,"4")
+               if allowSched = "Y" then
+                  $submit(b_addPE, apptEnter)
+               endif
+               if scheduleOnly != "Y" then
+                  $submit(b_addER, EventEnter)
+               endif
+               if allowReSched = "Y" then
+                  $submit(b_MassRS, "Reschedule Day")
+               endif
+               
+               if allowSched = "Y" then
+                  T = "newStaff`" + staff_id + ";newDate`" + tempdate
+                  + ";o_dayPreview`Y"
+                  $uscwinbutton("Day Preview",$scriptid,"Schedule Preview",800,600,,T)
+               endif
+            endif
+            $row()
+            if scheduleOnly != "Y" then
+               if showSched = "Y" then
+                  $col()   $text("A = Appointment Reconciliation")
+                  $col()   $text("N = No Show/Cancelation")
+               endif
+               if showEvents = "Y" then
+                  $col()   string = "U = Update " + eventTitle
+                           $text(string)
+               endif
+            else
+               $col()   $text("C = Cancel Appointment")
+            endif
+
+            if allowReSched = "Y" then
+               $col()   $text("R = Reschedule Appointment")
+            endif
+            if allowDelete = "Y" then
+               $col()   $text("D = Delete Appointment/Event")
+            endif
+         $endtable("actions")
+      $endfieldset()
+'      $tag("</center>")
+
+      $br()
+
+      $table("event","events")
+      $row()
+         $col()$text("Action","datatag")
+         $col()$text("Client","datatag")
+         $col()$text("Staff", "datatag")
+         $col()$text("Time","datatag")
+         $col()$text("Dur","datatag")
+         if modeprompt dp then
+            $col()$text("Mode","datatag")
+         endif
+'         $col("center")$text("Att","datatag")
+'         $col("center")$text("Rec","datatag")
+         $col("center")$text("Notes","datatag")
+'         if scheduleOnly != "Y" then
+'            if allowfinance = "Y" then
+'               $col("center")$text("Last Fin Assmt","datatag")
+'            endif
+'         endif
+'         if showSched = "Y" then
+'            $col("center")$text("Last Action By","datatag")
+'            $col("center")$text("Action On","datatag")
+'         endif
+      $row()
+         if modeprompt dp then
+            $col("center")$text("{hr /}")
+         endif
+         $col("center")$text("{hr /}")
+         $col("center")$text("{hr /}")
+         $col("center")$text("{hr /}")
+         $col("center")$text("{hr /}")
+         $col("center")$text("{hr /}")
+'         $col("center")$text("{hr /}")
+'         $col("center")$text("{hr /}")
+         $col("center")$text("{hr /}")
+'         if scheduleOnly != "Y" then
+'            if allowfinance = "Y" then
+'               $col("center")$text("{hr /}")
+'            endif
+'         endif
+'         if showSched = "Y" then
+'            $col("center")$text("{hr /}")
+'            $col("center")$text("{hr /}")
+'         endif
+      if showSched = "Y" then
+         $row()   
+         
+         $col("left",,,"5")   $text(apptTitle, "h6")
+         ecnt = 0
+         do while ecnt++ < $maxarray(p.staff[], p.cl[], p.sam[])
+            t = "<tr id='headrow-" + p.cl[ecnt] + "-" 
+              + $replace(" ", "0", $fmt(p.time[ecnt],"HHMM")) 
+              + "-" + $replace(" ","0", $fmt(p.dur[ecnt], "HHMM")) + "' class='headrow' >"
+            $ctag(t)
+            '$row("hrow")   
+            $col()
+            if allowDelete = "Y" then
+               $submit(b_del[ecnt],"D")
+            endif
+            if scheduleOnly != "Y" then
+               $submit(b_comp[ecnt],"A")
+               $submit(b_noShow[ecnt], "N")
+            else
+               if allowCancel != "N" then
+'               if sDate > $today then
+                  $submit(b_noShow[ecnt], "C")
+'               endif
+               endif
+            endif
+            if allowReSched = "Y" then
+               $submit(b_reSch[ecnt],"R")
+            endif
+            addRow(p.cl[ecnt], p.staff[ecnt], sDate, p.time[ecnt], p.dur[ecnt], p.desc[ecnt],,
+                   p.att[ecnt], p.recip[ecnt], pe.ss[ecnt], pe.sd[ecnt],
+                   scheduleOnly, allowFinance, allowPnote, b_pe_banote[ecnt], b_pe_finass[ecnt],
+                   e_note[], e_label[], l-dst, d_name[], d_label[], p.proj[ecnt], modeprompt)
+            $ctag("</tr>")
+         enddo
+      endif
+      if showEvents = "Y" then
+         $row()   $col("left",,,"5")   $text(eventTitle, "h6")
+         ecnt = 0
+         do while ecnt++ < $maxarray(e.case.no[])
+            t = "<tr id='headrow-" + e.case.no[ecnt] + "-" 
+              + $replace(" ", "0", $fmt(e.start[ecnt],"HHMM")) 
+              + "-" + $replace(" ","0", $fmt(e.cl.dur[ecnt], "HHMM")) + "' class='headrow' >"
+            $ctag(t)
+            $col()
+'            $row("hrow")   $col()   'update buttons?
+            if allowDelete = "Y" then
+               $submit(b_eDel[ecnt], "D")
+            endif
+            if e.bill.flg[ecnt] = "Y" then
+               $text("*Billed*")
+            'elseif usreventLib:check_date(allowUpdateDay, e.date[ecnt], "N") = "Y" then
+            elseif e.date[ecnt] > `$today - allowUpdateDay` and scheduleOnly != "Y" then
+               $submit(b_eUpdate[ecnt], "U")
+            endif
+            addRow(e.case.no[ecnt], e.staff[ecnt], sDate, e.start[ecnt], e.cl.dur[ecnt], e.desc[ecnt],
+                           e_findate[ecnt], e.att[ecnt], e.recip[ecnt],,, scheduleOnly, allowFinance,
+                           allowPnote, b_e_banote[ecnt], b_e_finass[ecnt],
+                           e_note[], e_label[], l-dst, d_name[], d_label[], e.proj[ecnt], modeprompt)
+            $ctag("</tr>")
+         enddo
+      endif
+      $endtable("event")
+      $tag("</center>")
+
+      $ctag(__js)
+      $sendform("ENTER")
+      if l-todo dp then
+         l-todo:submit()
+      endif
+      select $endbutton
+         case "CANCEL"     return      'look to see if last line was added
+         case "SUBMIT"     'refresh
+                           $clear(searchFlag)
+
+         case other
+            select "Y"
+               case b_search     'gosub READDATA
+                                 $clear(searchFlag)
+               case b_addPE      'new schedule
+                                 gosub ADDPE
+               case b_MassRS     'reschedule everyone
+                                 gosub MASSUPDATE
+               case b_addER      ecnt = $maxarray(e.key[], e.staff[], e.ser[], e.ru[]) + 1
+                                 string = "Record " + eventEnter
+                                 'set the staff for new appointments to current staff
+                                 e.staff[ecnt] = staff_id
+                                 e.date[ecnt] = sDate
+                                 gosub ADDDATA
+               case other  if b_e_banote[] dp then
+                              ecnt = $find("Y", b_e_banote[], 1, "F")
+   '                           call "eBASE_notes" ("MHBAELIG",,e.case.no[ecnt])
+                              call note_script (note_parm, note_opt, e.case.no[ecnt])
+                           endif
+                           if b_e_finass[] dp then
+                              ecnt = $find("Y", b_e_finass[], 1, "F")
+                              call "FINASSMT" (e.case.no[ecnt])
+                              $clearLeftFrame()
+                           endif
+                           if b_pe_banote[] dp then
+                              ecnt = $find("Y", b_pe_banote[], 1, "F")
+   '                           call "eBASE_notes" ("MHBAELIG",,p.cl[ecnt])
+                              call note_script (note_parm, note_opt, p.cl[ecnt])
+                           endif
+                           if b_pe_finass[] dp then
+                              ecnt = $find("Y", b_pe_finass[], 1, "F")
+                              call "FINASSMT" (p.cl[ecnt])
+                              $clearLeftFrame()
+                           endif
+                           if b_del[] dp or b_eDel[] dp then
+                              gosub DELETEDATA
+                           endif
+                           if b_reSch[] dp then
+                              ecnt = $find("Y", b_reSch[], 1, "F")
+                              string = "Re-Schedule Appointment"
+                              gosub UPDATEDATA
+                           endif
+                           if b_noShow[] dp then
+                              ecnt = $find("Y", b_noShow[], 1, "F")
+                              if p.date[ecnt] > $today then
+                                 string = "4,5"
+                              else
+                                 string = cancelCodes
+                              endif
+                              gosub CANCELPE
+                           endif
+                           if b_comp[] dp then
+                              ecnt = $find("Y", b_comp[], 1, "F")
+                              if p.date[ecnt] > $today then
+                                 string = "4,5"
+                                 gosub CANCELPE
+                              else
+                                 if p.cl[ecnt] dp then
+                                    gosub COMPLETEEVENT
+                                 else
+                                    b_del[ecnt] = "Y"
+                                    gosub DELETEDATA
+                                 endif
+                              endif
+                           endif
+                           if b_eUpdate[] dp then
+                              ecnt = $find("Y", b_eUpdate[], 1, "F")
+                              if e.date[ecnt] > $today  then
+                                 string = "4,5"
+                                 gosub CANCELER
+                              elseif $find(e.att[ecnt], cancelcodes, 1, "F") > 0 then
+                                 string = cancelCodes
+                                 gosub CANCELER
+                              else
+                                 string = "Update " + eventTitle
+                                 ecnt = $find("Y", b_eUpdate[], 1, "F")
+                                 gosub ADDDATA
+                              endif
+                           endif
+                           if sched_btn[] dp then     'currently not in use??
+                              ecnt = $find("Y", sched_btn[], 1, "F")
+                              call "finNOSIS2" (e.case.no[ecnt])
+                           endif
+            endselect
+
+            '* loop through events and update ISN's from a previous
+            '  mass-update
+            if o_mass = "Y" then
+               $clear(o_mass)
+               i = 0
+               do while i++ < $maxarray(e.case.no[])
+                  ptr = $find(e.case.no[i],t.cl[],,"F")
+                  do while ptr > 0
+                     $clear(isn.cxl.code)
+                     if e.isn.key[i] dp then
+                        rc = $dbread(9,e.isn.key[i],isn.cxl.rec,isn.cxl.code)
+                     endif
+
+                     if t.cl[ptr] = e.case.no[i] and
+                        t.sam[ptr] = e.ser[i] and
+                        t.time[ptr] = e.start[i] and
+                        e.isn.key[i] dp and
+                        isn.cxl.code !dp then
+                        setCancel(e.isn.key[i],cx_code,cx_txt)
+                        ptr = 0
+                     else
+                        ptr = $find(e.case.no[i],t.cl[],++ptr,"F")
+                     endif
+                  enddo
+               enddo
+
+               $clear(t.cl[],t.sam[],t.time[])
+               $clear(cx_code,cx_txt)
+            endif
+
+      endselect
+      gosub _CLEANUP
+      gosub READDATA
+   enddo
+   'exit before subroutines
+goback
+
+
+'-------------------------------
+' subroutines are after this point
+'-------------------------------
+_INIT:
+   "lib_REPORTS":log_prog($scriptid)
+   gosub _LOADLIB
+   $setstyle(".red", "color:red")
+   $setstyle(".blue", "color:darkblue")
+   $setstyle(".green", "color:darkgreen")
+
+   linkLabel[1] = " * Client Information"
+   linkScript[1] = "CLDEMO1"
+   linkLabel[2] = " * Event Corrections"
+   linkScript[2] = "EVENTUPT"
+   linkLabel[3] = " * EMR"
+   linkScript[3] = "eBASE_snapview"
+'   linkLabel[5] = "* Supplimental Nurse Note"
+'   linkScript[5] = "eBASE_notes|ECNANOVN"
+
+   getParm(parmfile)
+   getOption(option)
+   
+   $looplimit = 0
+   if sdate !dp then
+      sdate = $today
+   endif
+   tempDate = sdate
+   if staff_id !dp then
+      staff_id = $operstaffid
+   endif
+   tempstaff = staff_id
+   if selfOnly != "Y" then
+      searchFlag = "Y"
+   endif
+   if forceNoteType dp then
+      thisNoteType = forceNoteType
+   endif
+   if allowNTselect dp then
+         (VOID)$dctload(allowNTselect, nt_code[], nt_desc[], nt_adult[], nt_child[])
+         searchFlag = "Y"
+   endif
+   'parameters for changing the note program called
+   if note_script !dp then note_script = "eBASE_notes" endif
+   if note_parm !dp then note_parm = "MHBAELIG" endif
+   
+   if l-todo dp then
+      string = "catid = " + todo_cat
+'      l-todo:filter(string)
+   endif
+
+   if o_dayPreview = "Y" then
+      if newDate !dp then newDate = $today + 1 endif
+      getNewStaffDay(newStaff,`$castd(newDate)`,"Preview Schedule")
+      return
+   endif
+
+   if o_dayAvail = "Y" then
+      if newDate !dp then newDate = $today + 1 endif
+      dayAvailable(newStaff, $castd(newDate))
+      'getNewStaffDay(newStaff,`$castd(newDate)`,"Preview Schedule")
+      return
+   endif
+
+goback
+
+'-------------------------------
+_LOADLIB:
+   if $loadlib(groupLib, "lib_GROUPS") > 0 then
+      $brmsg("Unable to load Group Library. Please Contact MIS", 1, "WEC")
+      return
+   endif
+   if $loadlib(eventLib, "lib_EventIO") > 0 then
+      $brmsg("Unable to load Event Library. Please Contact MIS", 1, "WEC")
+      return
+   endif
+   if $loadlib(clientLib, "lib_CLIENT") > 0 then
+      $brmsg("Unable to load Client Library. Please Contact MIS", 1, "WEC")
+      return
+   endif
+   if $loadlib(usreventLib, "lib_USREVENT","S") > 0 then
+      $brmsg("Unable to load User Event Library. Please Contact MIS", 1, "WEC")
+      return
+   endif
+   'if $loadlib(usreventLib, "lib_USREVENT") > 0 then
+   '   $brmsg("Unable to load User Event Library. Please Contact MIS", 1, "WEC")
+   '   return
+   'endif
+   if $loadlib(l-link, "lib_QuickLink") > 0 then
+      $brmsg("Unable to load Quick Link Library. Please Contact MIS", 1, "WEC")
+      return
+   endif
+   if $loadlib(l-dst, "lib_DST") > 0 then
+      $brmsg("Unable to load DST Library, Please Contact MIS", 1, "WEC")
+   endif
+   'set group security flags
+   if groupLib:group_member(1) = "Y" or groupLib:group_member(2) = "Y" then
+      allowDelete = "Y"
+   endif
+   if $loadlib(l-todo, "lib_ActiveList") > 0 then
+'      $brmsg("Unable to load Actvie List Library. Please Contact MIS", 1, "WEC")
+      $clear(l-todo)
+'      return
+   endif
+
+goback
+
+'-------------------------------
+_CLEANUP:
+   (void)$unloadlib(,"F")
+   're-load
+   gosub _LOADLIB
+goback
+
+'-------------------------------
+READDATA:
+   staff_id = tempStaff
+   sdate = tempDate
+   $clear(e.key[], e.start[], e.case.no[], e.ser[], e.dur[], e.cl.dur[],
+         e.ru[], e.loc[], e.desc[], p.key[], p.time[], p.cl[], p.sam[], p.dur[],
+         p.ru[], p.loc[], p.desc[], e.staff[], p.staff[], e.date[], p.date[], e.recip[], p.recip[],
+         e.att[], p.att[], p.lof[],e.lof[], e.bill.flg[], pe.ss[], pe.sd[], pe.st[],
+         e.isn.key[], e.proj[],p.proj[])
+   eventLib:clear("ALL")
+   eventLib:setEvents(staff_id,,sdate,sdate)
+   eventLib:getEventInfo(e.key[], e.start[], e.case.no[], e.ser[], e.dur[], e.cl.dur[],
+         e.ru[], e.loc[], e.desc[], p.key[], p.time[], p.cl[], p.sam[], p.dur[],
+         p.ru[], p.loc[], p.desc[], e.staff[], p.staff[], e.date[], p.date[], e.recip[],e.lof[], p.lof[],
+         e.att[], p.att[], p.recip[], e.bill.flg[], pe.ss[], pe.sd[], pe.st[],
+         e.isn.key[], e.proj[], p.proj[])
+   tempStaff = staff_id
+   tempDate = sdate
+goback
+
+'-------------------------------
+DELETEDATA:
+
+   ecnt = $find("Y", b_del[], 1, "F")
+   if ecnt > 0 then
+      string = "Are you SURE you want to PERMENANTLY remove this planned event for Staff:" + p.staff[ecnt]
+      string += " Client:" + p.cl[ecnt] + " On: " + p.date[ecnt] + "?"
+      "l_stdLib":std_infoPage("Planned Event Removal", string,, "Remove Event", "Cancel")
+      if $endbutton = "SUBMIT" then
+         eventLib:removeEvents(p.key[ecnt])
+      endif
+   endif
+   ecnt = $find("Y", b_eDel[],1,"F")
+   if ecnt > 0 then
+      string = "Are you SURE you want to PERMENANTLY remove this  event for Staff:" + e.staff[ecnt]
+      string += " Client:" + e.case.no[ecnt] + " On: " + e.date[ecnt] + "?"
+      "l_stdLib":std_infoPage("Event Removal", string,, "Remove Event", "Cancel")
+      if $endbutton = "SUBMIT" then
+         eventLib:removeEvents(e.key[ecnt])
+      endif
+   endif
+goback
+
+'-------------------------------
+ADDPE:
+
+   ecnt = $maxarray(p.cl[], p.key[]) + 1
+   if clientLib:pickClient(p.cl[ecnt]) > 0 then
+      goback
+   endif
+   p.staff[ecnt] = staff_id
+   p.date[ecnt] = sDate
+'   if forceNoteType dp then
+'      thisNoteType = forceNoteType
+'   elseif allowNTselect dp then
+
+'   else
+   if forceNoteType !dp then
+      thisNoteType = get_noteType(p.staff[ecnt], p.cl[ecnt], p.sam[ecnt], p.date[ecnt])
+   else
+      thisNoteType = forceNoteType
+   endif
+   p.noteType[ecnt] = thisNoteType
+   if forceProj dp then
+      p.proj[ecnt] = $casti(forceProj)
+   endif
+   if changeForm(apptEnter, p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+               p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt],,,, p.noteType[ecnt], p.desc[ecnt], "P", 
+               p.proj[ecnt], modeprompt) = 0 then
+      'p.desc[ecnt] = "Sch by" + $operstaffid + " on " + $today
+      pe.ss[ecnt] = $operstaffid
+      pe.sd[ecnt] = $today
+      pe.st[ecnt] = $timenow
+      eventLib:setCurrentEvents(p.key[ecnt])
+      eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+                  p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
+                  pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt], p.proj[ecnt])
+   else
+      $clear(p.cl[ecnt], p.staff[ecnt], p.noteType[ecnt], p.date[ecnt], pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt])
+   endif
+goback
+
+'-------------------------------
+CANCELER:
+
+   if getAttCode(e.att[ecnt], string) > 0 then
+      goback
+   endif
+'   string = "C ~~~~~~ - MM/DD/YY"
+'   p.desc[ecnt] = $fmt($operstaffid, $today, string)
+'   pe.ss[ecnt] = $operstaffid
+'   pe.sd[ecnt] = $today
+'   pe.st[ecnt] = $timenow
+'   p.dur[ecnt] = 0
+'   p.cl.dur[ecnt] = 0
+'   p.recip[ecnt] = 1
+   eventLib:setCurrentEvents(e.key[ecnt])
+   if $find(e.att[ecnt],d_CancelAtt) > 0 then
+      $isnrgfrom = "ISN"
+      $clear($isnkey)
+   endif
+'   eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+'               p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
+'               pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt])
+      eventLib:putEventInfo(e.key[ecnt], e.case.no[ecnt], e.staff[ecnt], e.date[ecnt], e.start[ecnt], e.dur[ecnt],
+                  e.desc[ecnt], e.loc[ecnt], e.ru[ecnt], e.ser[ecnt], e.recip[ecnt], e.att[ecnt], e.cl.dur[ecnt], e.lof[ecnt])
+   $clear($isnrgfrom)
+   %debugstart
+   $brmsg(`"$ISNKEY: " + $isnkey + " E.ISN.KEY:" + e.isn.key[ecnt]`,1,"CW")
+   %debugend
+   if $find(e.att[ecnt],d_CancelAtt) > 0 then
+      rc = getCancel(cx_code,cx_txt,e.isn.key[ecnt],"Y")
+      
+      '* cancelled form
+      if rc = 9 then
+         goback
+      endif
+      rc = setCancel(e.isn.key[ecnt],cx_code,cx_txt)
+      if rc > 0 then
+         $brmsg($fmt(rc,"Error updating ISN RC:99"),1,"CW")
+      endif
+      $clear(cx_code,cx_txt)
+   endif
+goback
+'-------------------------------
+CANCELPE:
+
+   if getAttCode(p.att[ecnt], string) > 0 then
+      goback
+   endif
+'   string = "C ~~~~~~ - MM/DD/YY"
+'   p.desc[ecnt] = $fmt($operstaffid, $today, string)
+   pe.ss[ecnt] = $operstaffid
+   pe.sd[ecnt] = $today
+   pe.st[ecnt] = $timenow
+   p.dur[ecnt] = 0
+   p.cl.dur[ecnt] = 0
+   p.recip[ecnt] = 1
+   eventLib:setCurrentEvents(p.key[ecnt])
+   if $find(p.att[ecnt],d_CancelAtt) > 0 then
+      $isnrgfrom = "ISN"
+      $clear($isnkey)
+   endif
+   eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+               p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
+               pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt], p.proj[ecnt])
+   $clear($isnrgfrom)
+   if $find(p.att[ecnt],d_CancelAtt) > 0 then
+      getCancel(cx_code,cx_txt)
+      rc = setCancel($isnkey,cx_code,cx_txt)
+      if rc > 0 then
+         $brmsg($fmt(rc,"Error updating ISN RC:99"),1,"CW")
+      endif
+      $clear(cx_code,cx_txt)
+   endif
+goback
+
+'-------------------------------
+UPDATEDATA:
+
+'   if forceNoteType dp then
+'      thisNoteType = forceNoteType
+'   else
+   if forceNoteType !dp then
+      thisNoteType = get_noteType(p.staff[ecnt], p.cl[ecnt], p.sam[ecnt], p.date[ecnt])
+   else
+      thisNoteType = forceNoteType
+   endif
+   p.noteType[ecnt] = thisNoteType
+   if p.date[ecnt] > $today then
+      tempAtt = "4,5"
+   else
+      tempAtt = cancelCodes
+   endif
+   if getAttCode(p.att[ecnt], tempAtt) > 0 then
+      goback
+   endif
+
+   if $find(p.att[ecnt],d_CancelAtt) > 0 then
+      'cx_txt = p.desc[ecnt]
+      getCancel(cx_code,cx_txt)
+   endif
+'   if p.att[ecnt] !dp then 'canceled by user
+'      goback
+'   endif
+   i = $maxarray(p.cl[], p.sam[]) + 1
+   p.cl[i] = p.cl[ecnt]
+   p.staff[i] = p.staff[ecnt]
+   p.dur[i] = p.dur[ecnt]
+   p.desc[i] = p.desc[ecnt]
+   p.loc[i] = p.loc[ecnt]
+   p.ru[i] = p.ru[ecnt]
+   p.sam[i] = p.sam[ecnt]
+   p.key[i] = p.key[ecnt]
+   p.notetype[i] = p.notetype[ecnt]
+   p.proj[i] = p.proj[ecnt]
+
+   if changeForm(string, p.key[i], p.cl[i], p.staff[i], p.date[i], p.time[i], p.dur[i],
+                  p.desc[i], p.loc[i], p.ru[i], p.sam[i],,,,p.noteType[i], p.desc[ecnt], "P",p.proj[i],
+                  modeprompt) = 0 then
+      $clear(p.key[i])
+'      string = "RS ~~~~~~ - MM/DD/YY"
+'      p.desc[i] = $fmt($operstaffid, $today, string)
+      pe.ss[i] = $operstaffid
+      pe.sd[i] = $today
+      pe.st[i] = $timenow
+      eventLib:setCurrentEvents(p.key[i])
+      eventLib:putEventInfo(p.key[i], p.cl[i], p.staff[i], p.date[i], p.time[i], p.dur[i],
+                  p.desc[i], p.loc[i], p.ru[i], p.sam[i], pe.sd[i], pe.ss[i], pe.st[i], p.proj[i])
+'      string = "RS(~~~~~~)to MM/DD/YY"
+'      p.desc[ecnt] = $fmt($operstaffid, p.date[i], string)
+      pe.ss[ecnt] = $operstaffid
+      pe.sd[ecnt] = $today
+      pe.st[ecnt] = $timenow
+      p.dur[ecnt] = 0
+      p.cl.dur[ecnt] = 0
+      p.recip[ecnt] = 1
+
+      if $find(p.att[ecnt],d_CancelAtt) > 0 then
+         $isnrgfrom = "ISN"
+         $clear($isnkey)
+      endif
+
+      eventLib:setCurrentEvents(p.key[ecnt])
+      eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+                  p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt],
+                  pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt], p.proj[ecnt])
+
+      $clear($isnrgfrom)
+      if $find(p.att[ecnt],d_CancelAtt) > 0 then
+         'cx_txt = p.desc[ecnt]
+         'getCancel(cx_code,cx_txt)
+         rc = setCancel($isnkey,cx_code,cx_txt)
+         if rc > 0 then
+            $brmsg($fmt(rc,"Error updating ISN RC:99"),1,"CW")
+         endif
+         $clear(cx_code,cx_txt)
+      endif
+   else
+      $clear(p.staff[ecnt], p.key[i], p.cl[i], p.staff[i], p.date[i], p.time[i], p.dur[i],
+                  p.desc[i], p.loc[i], p.ru[i], p.sam[i], p.noteType[i], pe.ss[ecnt], pe.sd[ecnt], pe.st[ecnt])
+   endif
+goback
+
+'-------------------------------
+MASSUPDATE:
+
+   if getAttCode(tempAtt, cancelCodes) > 0 then
+      goback
+   endif
+
+   if getCancel(cx_code,cx_txt) > 0 then
+      goback
+   endif
+
+   massChangeForm(err[], tempAtt, p.key[], p.cl[], p.staff[], p.date[], p.time[], p.dur[], p.desc[], p.loc[],
+                                  p.sam[], p.ru[], p.cl.dur[], p.recip[], p.att[], pe.ss[], pe.sd[], pe.st[], 
+                                  p.proj[], modeprompt)
+   if err[] dp then
+      'display the error
+      (void)$putds(err[], string, "|")
+      string = "{ul}{li}" + $replace("|", "{/li}{li}", string) + "{/li}{/ul}"
+      "l_stdLib":std_infoPage("Re-Scheduling Conflict", string,, "", "Back")
+   else
+      if $find(tempAtt,d_CancelAtt) > 0 then
+         t.cl[]   = p.cl[]
+         t.sam[]  = p.sam[]
+         t.time[] = p.time[]
+         o_mass   = "Y"
+         $isnrgfrom = "ISN"
+         $clear($isnkey)
+      endif
+      eventLib:putEventInfo(p.key[], p.cl[], p.staff[], p.date[], p.time[], p.dur[], p.desc[], p.loc[], p.ru[], p.sam[],
+                        p.recip[], p.att[], p.cl.dur[], pe.ss[], pe.sd[], pe.st[], p.proj[])
+
+      if $find(tempAtt,d_CancelAtt) > 0 then
+         $clear($isnrgfrom)
+      endif
+   endif
+goback
+'-------------------------------
+ADDDATA:
+
+   if e.case.no[ecnt] !dp then
+      call "getLiveClient" (e.case.no[ecnt])
+   endif
+'   if forceNoteType dp then
+'      thisNoteType = forceNoteType
+'   else
+   if forceNoteType !dp then
+      thisNoteType = get_noteType(e.staff[ecnt], e.case.no[ecnt], e.ser[ecnt], e.date[ecnt])
+   else
+      thisNoteType = forceNoteType
+   endif
+   if forceProj dp then
+      e.proj[ecnt] = $casti(forceProj)
+   endif
+   e.noteType[ecnt] = thisNoteType
+   usreventlib:pne_supervisor(e.notetype[ecnt], sup_req, sup_diff)
+   if changeForm(string, e.key[ecnt], e.case.no[ecnt], e.staff[ecnt], e.date[ecnt], e.start[ecnt], e.dur[ecnt],
+                  e.desc[ecnt], e.loc[ecnt], e.ru[ecnt], e.ser[ecnt], e.recip[ecnt], e.att[ecnt],
+                  e.cl.dur[ecnt], e.noteType[ecnt],,,e.proj[ecnt], modeprompt) = 0 then
+      if sup_req = "Y" then
+         e.lof[ecnt] = get_supervisor(e.staff[ecnt])
+      endif
+      eventLib:setCurrentEvents(e.key[ecnt])
+      eventLib:putEventInfo(e.key[ecnt], e.case.no[ecnt], e.staff[ecnt], e.date[ecnt], e.start[ecnt], e.dur[ecnt],
+                  e.desc[ecnt], e.loc[ecnt], e.ru[ecnt], e.ser[ecnt], e.recip[ecnt], e.att[ecnt], e.cl.dur[ecnt], e.lof[ecnt],e.proj[ecnt])
+      'open care assignments
+      call "PNEENTRY5" (e.ru[ecnt], e.ser[ecnt], e.date[ecnt], e.staff[ecnt], e.recip[ecnt], e.att[ecnt], e.loc[ecnt],
+                 e.case.no[ecnt], , ,e.notetype[ecnt], e.staff[ecnt])
+
+   else
+      if b_addER dp then   'clear the new row if the event was not added
+         $clear(e.staff[ecnt], e.date[ecnt], e.case.no[ecnt])
+      endif
+   endif
+goback
+
+'-------------------------------
+COMPLETEEVENT:
+
+   ecnt = $find("Y", b_comp[], 1, "F")
+'   if getAttCode(tempAtt) > 0 then
+'      goback
+'   endif
+'   p.att[ecnt] = tempAtt
+' if $find(tempAtt, cancelCodes, 1, "F") > 0 then
+'      'cancel the note
+'      string = "C ~~~~~~ - MM/DD/YY"
+'      p.desc[ecnt] = $fmt($operstaffid, $today, string)
+'      p.dur[ecnt] = 0
+'      p.cl.dur[ecnt] = 0
+'      p.recip[ecnt] = 1
+'      eventLib:setCurrentEvents(p.key[ecnt])
+'      eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt], p.dur[ecnt],
+'                  p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt], p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt])
+'   else
+'   if forceNoteType dp then
+'      thisNoteType = forceNoteType
+'   else
+   if forceNoteType !dp then
+      thisNoteType = get_noteType(p.staff[ecnt], p.cl[ecnt], p.sam[ecnt], p.date[ecnt])
+   else
+      thisNoteType = forceNoteType
+   endif
+   p.noteType[ecnt] = thisNoteType
+   usreventlib:pne_supervisor(p.notetype[ecnt], sup_req, sup_diff)
+   if changeForm("Complete Scheduled Appointment", p.key[ecnt], p.cl[ecnt], p.staff[ecnt], sDate, p.time[ecnt], p.dur[ecnt],
+               p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt],
+               p.recip[ecnt], p.att[ecnt], p.cl.dur[ecnt], p.noteType[ecnt],,, p.proj[ecnt], modeprompt) = 0 then
+      if sup_req = "Y" then
+         p.lof[ecnt] = get_supervisor(p.staff[ecnt])
+      endif
+      eventLib:setCurrentEvents(p.key[ecnt])
+      eventLib:putEventInfo(p.key[ecnt], p.cl[ecnt], p.staff[ecnt], p.date[ecnt], p.time[ecnt],
+                  p.dur[ecnt], p.desc[ecnt], p.loc[ecnt], p.ru[ecnt], p.sam[ecnt],
+                  p.recip[ecnt], p.att[ecnt], p.cl.dur[ecnt], p.lof[ecnt], p.proj[ecnt])
+      'open care assignments
+      call "PNEENTRY5" (p.ru[ecnt], p.sam[ecnt], p.date[ecnt], p.staff[ecnt], p.recip[ecnt], p.att[ecnt], p.loc[ecnt],
+                 p.cl[ecnt], , ,p.notetype[ecnt], p.staff[ecnt])
+      $clear(p.cl.dur[ecnt], p.recip[ecnt], p.att[ecnt])
+
+   endif
+'   endif
+   $clear(tempAtt)
+goback
+
+__preload:
+%preload js-pePreview line-ending(cr)
+<style>
+   .odd,td.odd{
+      background-color: #eee;
+   }
+</style>
+      
+<script for='pstaff' event='onchange'>
+   validate(this);
+   setTimeout("dayPreview()",250);
+</script>
+
+<script for='pdate' event='onchange'>
+   validate(this);
+   setTimeout("dayPreview()",250);
+</script>
+
+<script for='pdate2' event='onchange'>
+   validate(this);
+   setTimeout("dayPreview()",250);
+</script>
+
+<script for='ptime' event='onchange'>
+   validate(this);
+   setTimeout("dayPreview()",250);
+</script>
+
+<script>
+   function dayPreview() {
+      document.getElementById('xMsg').style.display = 'block';
+
+      var pstaff = brAcdsp.pstaff.value;
+      var pdate  = brAcdsp.pdate.value;
+      var pdate2 = brAcdsp.pdate2.value;
+      var ptime  = brAcdsp.ptime.value;
+      //alert("dayPreview: "+pstaff+"-"+pdate+"-"+pdate2+"-"+ptime);
+      var miscom, command, rc, retval;       // define variables
+      miscom=top.topFrame.BUIControl;        // DOM path to rmi control
+      command="|C|dayPreview|"+pstaff+"|"+pdate+"|"+pdate2+"|"+ptime;  // rmi command to uScript
+      rc=miscom.callMIS(command,"");         // call uScript method
+      retval=rc.split("|");                  // parse the result
+               // retval[1] is return code set by rmi interface
+               // retval[2] is return code set by function
+               // retval[3] is input data (function arg 1)
+               // retval[4] is output data (function arg 2)
+      if (retval[1]=="1") {                 // if invalid command format
+          alert("Invalid RMI command");      // give alert
+      }
+      if (retval[1]=="2") {                 // if method not found
+          alert("Method dayPreview not found"); // give alert
+      }
+      if (retval[2]=="1") {                 // if phone format error
+          //alert("Invalid Phone Entered");     // give alert
+          //phn.focus();
+          alert("dayPreview error");
+      } else {
+         //alert(retval[5]);
+         peResults(retval[7]);
+         document.getElementById('xMsg').style.display = 'none';
+      }
+   }
+
+   function peResults(peStr) {
+      var bucket = document.getElementById('xPreview');
+      bucket.style.display = 'block';
+      bucket.innerHTML = '';
+      var row=new Array();
+      var cell=new Array();
+      var tab=document.createElement('table');
+      tab.setAttribute('id','newtable');
+      tab.setAttribute('width','95%');
+      tab.setAttribute('class','tight');
+      tab.setAttribute('border','1px');
+      var tbo=document.createElement('tbody');
+   
+      var rows = Array();
+      var detail = Array();
+      //var r = 0
+      //row[++r] = 
+
+      rows=peStr.split('~');
+      var i=0;
+      for(i=0;rows.length>i;i++) {
+         row[i]=document.createElement('tr');
+         row[i].setAttribute('menu_id',i + 1);
+         if (i % 2) {
+            row[i].setAttribute('className','even');
+         }
+         else {
+            row[i].setAttribute('className','odd');
+         }
+         
+         detail=rows[i].split('^');
+         var cell = new Array();
+         var c=0;
+         for(c=0;detail.length>c;c++) {
+            if (i == 0 || detail[c] == 'Available:' || detail[c]== 'New Day:') {
+               cell[c]=document.createElement('th');
+               cell[c].setAttribute('className','error');
+            } else {
+               cell[c]=document.createElement('td');
+            }
+            var cont = document.createTextNode(detail[c]);
+            cell[c].appendChild(cont);
+            row[i].appendChild(cell[c]);
+         }
+         tbo.appendChild(row[i]);
+      }
+      tab.appendChild(tbo);
+
+      document.getElementById('xPreview').appendChild(tab);
+   }
+
+</script>
+%endpreload
+
+   %preload __js line-ending(cr)
+   <script>
+      $('.menu-item').click(function(e){$(this).mis();});
+      $('.headrow').hover(function(){$(this).addClass('highlight pointer');},
+                       function(){$(this).removeClass('highlight pointer');})
+                   .toggle(
+                     function() {
+                        var slide = $("#"+this.id.replace("headrow","sliderow"))
+                        if (slide) {
+                           $(this).addClass('bghead').next('tr').addClass('bgbody');
+                           slide.slideDown('slow');
+                           //$("#"+this.id.replace("headrow","sliderow")).slideDown('slow');
+                        }
+                     },
+                     function() {
+                        var slide = $("#"+this.id.replace("headrow","sliderow"));
+                        if (slide) {
+                           slide.slideUp('slow');
+                           //$("#"+this.id.replace("headrow","sliderow")).slideUp('slow');
+                           $(this).removeClass('bghead').next('tr').removeClass('bgbody');
+                        }
+                     }
+                  );
+      //$('.actionwin').draggable();
+   </script>
+   %endpreload
+   %preload __css line-ending(cr)
+   <style>
+      .quarter{width:25%}
+      .txt-left{text-align:left;}
+      .marg-20{margin-left:20%;}
+      .marg-10{margin-left:10%;}
+      .bghead{background-color:skyblue;}
+      .bgbody{background-color:lightcyan;}
+      table.events{width:80%;margin-left;9%;overflow:hidden;}
+      table.events tr{overflow:hidden;}
+      tabe.event tr td{overflow:hidden;}
+      .slider{overflow:hidden;}
+   </style>
+   %endpreload
+goback
+
+end ApptList
+
+'-------------------------------
+' local functions after this point
+'-------------------------------
+
+%include inc_GetParm
+%include inc_GetOption
+
+dynamic FUNCTION getAttCode(attCode, allowedCodes) is b
+attCode        is x
+allowedCodes   is x
+err            is x
+if allowedCodes dp then
+   err = "Attendance code Must be " + allowedCodes
+endif
+do while 1 = 1
+   $submitOpt("off", "Next")
+   $cancelOpt("off", "Cancel")
+   $form("attcode")
+      $tag("<center>")
+      $text("Please Select Attendance for Original Appointment","h1")
+      $br(2)
+      $text(err, "error")
+      $br(2)
+      $textbox(attCode, "DCV``12",,,"Y")
+      $editmsg(attCode)
+      $tag("</center>")
+   $sendform("attcode")
+   select $endbutton
+      case "SUBMIT"     if $find(attCode, allowedCodes, 1, "F") > 0 or allowedCodes !dp then
+                           $allowupdate(attCode)
+                           getAttCode = 0
+                           return
+                        endif
+      case "CANCEL"     getAttCode = 1
+                        return
+   endselect
+enddo
+end getAttCode
+
+'-------------------------------
+'-------------------------------
+dynamic FUNCTION addRow(clientID, staffID, sDate, sTime, Duration, Description,
+                         FinDate, attendance, recipient, sStaff, schDate, scheduleOnly,
+                         finlink, pnotelink, b_note, b_fin, e_note[], e_label[],d-lib, d_name[], d_label[],project, modeprompt) is null
+clientID    is x
+staffID     is x
+sDate       is d
+sTime       is t
+duration    is t
+description is x
+findate     is x
+attendance  is x
+recipient   is x
+sStaff      is x
+schDate       is d
+scheduleOnly   is x
+finlink        is x
+pnotelink      is x
+b_note         is x
+b_fin          is x
+e_note[]       is x
+e_label[]      is x
+d_name[]       is x
+d_valu[]       is x
+d_label[]      is x
+d-lib          is b
+project        is b
+modeprompt     is x
+'d_list         is dstlist
+
+$$pp.rec    is h
+$$pp.eff    is d
+
+string      is x
+temp        is x
+l_temp[]    is x
+clname      is x
+i           is b
+
+
+
+if d-lib dp and d_name[] dp then
+   '(void)$dstlist(d_list, 2, d_name[], d_valu[])
+   d-lib:read(clientID, d_name[])
+   d-lib:listinfo(d_name[], d_valu[],,, l_temp[])
+   if d_label[] !dp then
+      d_label[] = l_temp[]
+   endif
+endif
+
+$allowupdate(findate)
+'if scheduleOnly = "Y" then
+'   pnoteLink = "N"
+'endif
+if attendance dp then
+   if attendance > "0" and attendance < "4" then
+      $style("blue")
+   else
+      $style("red")
+   endif
+else
+   $style("green")
+endif
+'$row()
+         (void)$dbalpha(clientDB, clientID, clname)
+         clname = $ncs(clname)
+         $col("left")   $text($fmt(clientID,clname, "(~~~~~~) ~~~~~~~~~~~~~~~~~~~~~~~~~"))
+         (void)$dbalpha(staffDB, staffID, string)
+         $col("left")   $text($fmt(staffID,string, "(~~~~) ~~~~~~~~~~~~~~~~~~~~~~~~~"))
+         $col("left") $text($format(sTime, "HH:MM AP"))
+         $col("left") $text($format(Duration, "HH:MM"))
+         if modeprompt dp then
+            $col("left") $text($pj(project))
+         endif
+'         $col("center") $text(attendance)
+'         $col("center") $text(recipient)
+'         'if scheduleOnly != "Y" then
+               $col("center") $text(description)
+'            if pnotelink = "Y" then
+'               if description !dp then
+'                  description = "N/A"
+'               endif
+'                  description = $checkoutput(description)
+''                  $uscWinButton(description, "eBASE_notes", "Benefits Advisor Progress Note",
+''                                1000, 1000, "MHBAELIG",,clientID)
+'                  $submit(&b_note, description)
+'            else
+'               $text(description)
+'            endif
+'            if finlink = "Y" then
+'               if findate !dp then
+'                  (void)$dbread(clientDB, clientID, $$pp.rec, $$pp.eff)
+'                  if $$pp.eff dp then
+'                     findate = $castx($$pp.eff)
+'                  else
+'                     findate = "NEVER"
+'                  endif
+'               endif
+'
+'               $col("center") '$uscWinButton(findate, "FINASSMT", "Financial Assessment",
+'                              '               1000,1000,clientid)
+'                              $submit(&b_fin, findate)
+'            endif
+'         'endif
+'         if sStaff dp or schDate dp then
+'            $col("center") $text($castx(sStaff))
+'            $col("center") $text($castx(schDate))
+'         endif
+         if e_note[] dp and e_label[] dp then
+            '$col()
+            string = "<tr><td colspan='10' class='center' id='menu-row-" + clientid + "-" 
+                   + $replace(" ", "0", $fmt(stime,"HHMM"))
+                   + "-" + $replace(" ","0", $fmt(duration, "HHMM"))
+                   + "'><div id='sliderow-" + clientid + "-" + $replace(" ", "0", $fmt(stime, "HHMM"))
+                   + "-" + $replace(" ","0", $fmt(duration, "HHMM"))
+                   + "'class='hide slider center' width='80%'>"
+            string += "Actions for: <span class='bold'>" + clname 
+                   + "</span><br /><br /><div class='eventdets left marg-10'><span class='bold'>Appt Info:</span><br />Attendance: "
+                    + $dct(12, attendance) + "<br />Recipient: " + $dct(11, recipient)
+            if sStaff dp then
+               (void)$geteditmsg(sStaff, "DB``03", temp)
+               string += "<br />Last Action By: " + temp
+            endif
+            if schDate dp then
+               string += "<br />Last Action on: " + $castx(schDate)
+            endif
+            if d_valu[] dp then 
+               string += "</div><div class='clientdets left marg-10'><span class='bold'>Info:</span>"
+               
+               i = 0
+               do while i++ < $maxarray(d_valu[])
+                  string += "<div id='CL-" + clientID + "-info-" + i + "'>" + d_label[i] + d_valu[i] + "</div>"
+               enddo
+            endif
+            string += "</div><div class='actiondets left marg-10'><span class='bold'>Links:</span>"
+            i  = 0
+            do while i++ < $maxarray(e_note[], e_label[])
+               string += "<div id='CL-" + clientID + "-item-" + i + "' class='ql-item'><div id='CL-" 
+                       + clientID + "-item-label-" + i + "' class='menu-item link'>" + e_label[i] 
+                       + "<div id='CL-" + clientID + "-item-script-" + i + "' class='ql-script hide'>" 
+                       + $replace("%CID%", clientid, e_note[i]) + "</div></div></div>"
+            enddo
+            string += "</div></div></td></tr>"
+            $ctag(string)
+         endif
+
+end addRow
+
+'--------------------------------------------------------------------------------------------------------------------
+'--------------------------------------------------------------------------------------------------------------------
+dynamic FUNCTION changeForm(title, eKey, clientid, staffid, startDate, startTime, duration, description, location, RU, sac,
+                           recipient, attendance, clientDur, noteType, descrip, eventType, project, show_pj) is b
+title      is x
+eKey        is x
+clientid    is x
+staffid     is x
+startDate   is d
+startTime   is t
+duration    is t
+description is x
+location    is x
+RU          is b
+sac         is b
+recipient   is x
+attendance  is x
+clientDur   is t
+eventType   is x
+rc          is x
+notetype    is x
+descrip     is x
+project     is b
+show_pj     is x
+T           is x
+
+p.date      is d
+
+changeForm = 99
+if clientid !dp then
+'   "l_clientLib":cl_getClient(title, clientid,,"DB``02")
+   call "getLiveClient" (clientID)
+   if clientID !dp then
+      changeForm = 2
+      return
+   endif
+endif
+
+call "PNEENTRY1" (title, clientid, , noteType, startDate, staffid,
+                    clientDur, RU, startTime, location, duration, sac, ,
+                    recipient, attendance, rc, show_pj,eKey, eventType,, descrip,project)', "0")
+if rc != "Y" then
+   $allowupdate(clientid, staffid, startDate, startTime, duration, description, location, RU, sac,
+                           recipient, attendance, clientDur,, descrip, project)
+   $clear(changeForm)
+else
+      changeForm = 1
+endif
+end changeForm
+
+'-------------------------------------------------------------
+dynamic FUNCTION massChangeForm(err[], newAtt, p.key[], p.cl[], p.staff[], p.date[], p.time[],
+                                       p.dur[], p.desc[], p.loc[], p.sam[], p.ru[],
+                                       p.cl.dur[], p.recip[], p.att[], pe.ss[], pe.sd[], pe.st[], p.proj[]) is null
+err[]       is x
+newAtt      is x
+p.key[]     is x
+p.cl[]      is x
+p.staff[]   is x
+p.date[]    is d
+p.time[]    is t
+p.dur[]     is t
+p.desc[]    is x
+p.loc[]     is x
+p.sam[]     is b
+p.ru[]      is b
+p.cl.dur[]  is t
+p.recip[]   is x
+p.att[]     is x
+pe.ss[]     is x
+pe.sd[]     is d
+pe.st[]     is t
+p.proj[]    is b
+
+i           is b
+j           is b
+max         is b
+newStaff    is x
+newDate     is d
+usreventLib is b
+
+js          is x
+T           is x
+
+if $loadlib(usreventLib, "lib_USREVENT") > 0 then
+   $brmsg("Unable to load User Event Library. Please Contact MIS", 1, "WEC")
+   return
+endif
+
+newStaff = p.staff[1]
+newDate = p.date[1]
+
+$clear(err[])
+$allowupdate(err[])
+
+getNewStaffDay(newStaff,newDate)
+
+if $endbutton = "CANCEL" then
+'   err[1] = $endbutton
+   return
+endif
+'max         is b
+'max = $maxarray(p.key[])
+i = 0
+j = $maxarray(p.date[])
+max = j
+do while i++ < max
+   p.cl[++j]   = p.cl[i]
+   p.staff[j]  = newStaff
+   p.date[j]   = newDate
+   p.time[j]   = p.time[i]
+   p.dur[j]    = p.dur[i]
+   p.loc[j]    = p.loc[i]
+   p.sam[j]    = p.sam[i]
+   p.ru[j]     = p.ru[i]
+   p.desc[j]   = p.desc[i]
+   pe.ss[j]    = $operstaffid
+   pe.sd[j]    = $today
+   pe.st[j]    = $timenow
+   p.key[j]    = p.key[i]     'INSERT OLD KEY FOR VALIDATION
+   p.proj[j]   = p.proj[i]
+   usreventLib:overlap_pe_pne(err[], p.cl[j], p.staff[j], p.date[j], p.time[j], p.dur[j], p.key[j])
+   if err[] dp then
+      return
+   endif
+   $clear(p.key[j])           'CLEAR OLD KEY
+   p.att[i]    = newAtt
+   p.dur[i]    = 0
+   p.cl.dur[i] = 0
+   p.recip[i]  = 1
+   pe.ss[i]    = $operstaffid
+   pe.sd[i]    = $today
+   pe.st[i]    = $timenow
+enddo
+'if we made it here there were no errors so commit the changes
+$allowupdate(p.key[], p.cl[], p.staff[], p.date[], p.time[], p.dur[], p.desc[], p.loc[], p.sam[], p.ru[],
+                                       p.cl.dur[], p.recip[], p.att[], pe.ss[], pe.sd[], pe.st[])
+end massChangeForm
+
+'-------------------------------------------------------------
+' this is a legacy function from SALENTRY()
+'-------------------------------------------------------------
+dynamic FUNCTION get_notetype(staffid, clientid, sac, edate) is alpha
+staffid     is alpha
+clientid    is alpha
+sac         is b
+staff_type  is alpha
+client_type is alpha
+s.discip    is alpha
+'pne_sac    is binary
+edate       is date
+rc          is binary
+lib         is binary
+string      is alpha
+credential  is alpha
+
+parmlines[] is x
+
+   if sac = 2011 then
+      get_notetype = "MHPHMGB"
+      return
+   endif
+
+   if sac = 4313 then
+      get_notetype = "ECNASTG"
+      return
+   endif
+
+rc = $regloadlib(lib, "lib_USREVENT")
+rc = $dbread(3, staffid, s.discip)
+rc = $dcv(60, s.discip, , staff_type)
+credential = $left(staff_type,2)
+client_type = {lib}get_client_type(clientid, edate)
+
+select credential
+   case "MD" or "DO" or "AP"
+      select sac
+         case 1500 or 2002 or 4436 or 4431 or 1501    get_notetype = "ECNATELM"
+         case 7005 or 7010                            get_notetype = "ECNTELNB"
+         case other
+            if client_type = "A" then
+               get_notetype = "ECNAPHMG"
+            else
+               get_notetype = "ECNCPHMG"
+      '        if {lib}pne_sacforntype("ECNCPHMG", pne_sac) = 1 then
+      '           get_notetype = "ECNCPHMG"
+      '        elseif {lib}pne_sacforntype("ECNCCIAL", pne_sac) = 1 then
+      '           get_notetype = "ECNCCIAL"
+      '        endif
+            endif
+      endselect
+   case "RN" or "LV"
+      if client_type = "A" then
+         if {lib}pne_sacforntype("ECNANOVN", sac) = 1 then
+            get_notetype = "ECNANOVN"
+         elseif {lib}pne_sacforntype("ECNAINJ", sac) = 1 then
+            get_notetype = "ECNAINJ"
+'        elseif {lib}pne_sacforntype("ECINJMED", pne_sac) = 1 then
+'           get_notetype = "ECINJMED"
+         endif
+      else
+         if {lib}pne_sacforntype("ECNCNOVN", sac) = 1 then
+            get_notetype = "ECNCNOVN"
+         elseif {lib}pne_sacforntype("ECNCINJ", sac) = 1 then
+            get_notetype = "ECNCINJ"
+'        elseif {lib}pne_sacforntype("ECINJMED", pne_sac) = 1 then
+'           get_notetype = "ECINJMED"
+         endif
+      endif
+   case other
+      if client_type = "C" then
+         if {lib}pne_sacforntype("ECNCFPR", sac) = 1 then
+            get_notetype = "ECNCFPR"
+         else
+            $clear(get_notetype)
+         endif
+      else
+         $clear(get_notetype)
+      endif
+endselect
+
+'----
+' added to fake the parmfile for specified notetype if needed
+if $getparm(,get_notetype) > 0 then
+   'now we have to fake a parm
+   parmlines[1] = "NOTETYPE " + get_notetype
+   (void)$putparm(parmlines[], get_notetype, "C")
+endif
+
+end get_notetype
+
+'another legacy function (with some modifications ) for
+' populating the LOF event data'
+' LOF is important for Billing - if the notetype requires a
+' supervisor that you should call this function to get the
+' corrisponding code for the lof field
+'-------------------------------------------
+dynamic FUNCTION get_supervisor(sstaff_id) is alpha
+sstaff_id   is alpha
+rc       is binary
+code[]      is alpha
+a1[]     is alpha
+x        is numeric
+
+rc = $dctload(14, code[], , a1[])
+x = $find(sstaff_id, a1[], 1, "F")
+get_supervisor = code[x]
+'x = 1
+'do while x <= $maxarray(a1[])
+'  if a1[x] = sstaff_id then
+'     get_supervisor = code[x]
+'     return
+'  endif
+'x++
+'enddo
+'$clear(get_supervisor)
+end get_supervisor
+
+dynamic FUNCTION getCancel(code,txt,key,exit) is b
+   code     is x
+   txt      is x
+   key      is x
+   exit     is x
+   
+   rc       is b
+
+   isn.cxl.rec    is r
+   isn.cxl.code   is x
+   isn.cxl.txt    is dbtext
+
+   $allowupdate(code,txt)
+   $clear($endbutton)
+
+   if key dp then
+      rc = $dbread(9,key,isn.cxl.rec,isn.cxl.code,isn.cxl.txt)
+      code = isn.cxl.code
+      txt  = isn.cxl.txt
+   endif
+
+   do while $endbutton != "SUBMIT"
+      $form()
+      $tag("<center>")
+      $text("Planned Event Cancellation Reason","h1")
+      $tag("<hr style='black' />")
+      $br(2)
+      $text("Reason: ","datatag")
+      $dropboxdct(code,9062,"C","D",,"Y")
+      $br()
+      $text("More information: ","datatag")
+      $textblock(txt,5,50,,"N",1024)
+      $countbox(txt,"max: #")
+      $tag("</center>")
+      $sendform()
+      
+      if $uc(exit) = "Y" and $endbutton = "CANCEL" then
+         getCancel = 9
+         return
+      endif
+   enddo
+
+   getCancel = 0
+
+end getCancel
+
+dynamic FUNCTION setCancel(key,code,txt) is b
+   key      is x
+   code     is x
+   txt      is x
+
+   rc             is b
+   isn.cxl.rec    is r
+   isn.cxl.code   is x
+   isn.cxl.txt    is dbtext
+
+   $dblock()
+   rc = $dbread(9,key,isn.cxl.rec,isn.cxl.code,isn.cxl.txt)
+   isn.cxl.code = code
+   isn.cxl.txt  = txt
+   rc = $dbadddst(9,key,isn.cxl.rec,isn.cxl.code,isn.cxl.txt)
+   if rc > 0 then
+      $brmsg($fmt(rc,"Error updating ISN RC:99"),1,"CW")
+   endif
+
+   setCancel = rc
+
+end setCancel
+
+' fetch planned event data for a quick preview during mass re-scheduling
+' peBlob return format:
+'  records separated by ~
+'  fields separated by ^
+'  **THESE CANNOT BE PIPES IN A RMI CALL**
+
+dynamic FUNCTION dayPreview(staff, dayFrom, dayTo, tFrame, peBlob) is b
+   staff    is x
+   dayFrom  is x
+   dayTo    is x
+   tFrame   is x
+   peBlob   is x
+   
+   lib      is i
+   i        is i
+   p        is i
+   t_dif    is t
+   T        is x
+   peDate   is d
+   peDate2  is d
+   peDate = $date(dayFrom)
+   peDate2 = $date(dayTo)
+   
+   timeReq  is t
+   'tFrame = $replace(".",":",tFrame)
+   timeReq = $time(tFrame)
+
+   if peDate !dp then peDate = $today endif
+   if peDate2 !dp then peDate2 = peDate endif
+   if timeReq !dp then timeReq = 0:15 endif
+   
+   p.staff[]   is x
+   p.cl[]      is x
+   p.date[]    is d
+   p.time[]    is t
+   p.dur[]     is t
+   p.desc[]    is x
+   
+   rs     is x
+   fs     is x
+   
+   rs = "~"
+   fs = "^"
+   
+   dayPreview = 0
+
+   if $loadlib(lib,"lib_EventIO") > 0 then
+      dayPreview = 1
+      return
+   endif
+   
+   lib:setEvents(staff,,peDate,peDate2)
+   lib:getEventInfo(p.staff[], p.cl[], p.date[],p.time[], p.dur[],p.desc[])
+
+   i = 0
+   do while i++ < $maxarray(p.staff[])
+      if i = 1 then
+         peBlob = "Client ID" + fs + "Name" + fs + "Date" + fs + "Time" + fs + "Duration" + fs + "Notes"
+      endif
+      peBlob += rs
+
+      if i > 1 then
+         p = i - 1
+         if p.date[i] = p.date[p] then
+            t_dif = p.time[i] - `p.time[p] + p.dur[p]`
+            if t_dif >= timeReq then
+               peBlob += "Available:"
+               + fs
+               + $fmt(`p.time[p] + p.dur[p]`,"HH:MM")
+               + " - " + p.time[i]
+               '+ fs
+               '+ $fmt(timeReq,t_dif,tFrame,"HH:MM - HH:MM ~~~~~~")
+               + rs
+            endif
+         else
+            peBlob += "**********" + fs + "**********" + fs + "**********" + fs + "**********" + fs + "**********" + fs + "**********"
+            + rs
+            + "New Day:" + fs + $fmt(p.date[i],"MM/DD/YY")
+            + rs
+            + "**********" + fs + "**********" + fs + "**********" + fs + "**********" + fs + "**********" + fs + "**********"
+            + rs
+         endif
+      endif      
+
+      $clear(T)
+      if p.cl[i] dp then
+         (void)$dbalpha(2,p.cl[i],T)
+      endif
+      
+      peBlob += 
+      p.cl[i]
+      + fs + $ncs(T)
+      + fs + $fmt(p.date[i],"MM/DD/YY")
+      + fs + $fmt(p.time[i],"HH:MMAP")
+      + fs + $fmt(p.dur[i],"HH:MM")
+      + fs + p.desc[i]
+   enddo
+   
+   if $maxarray(p.staff[]) = 0 then
+      peBlob = "No Planned Events Found"
+   endif
+
+   $allowupdate(peBlob)
+end dayPreview
+
+
+dynamic FUNCTION dayAvailable(staff, day, day2, timeframe) is b
+   staff    is x
+   day      is x
+   day2     is x
+   timeframe   is x
+   peBlob   is x
+
+   lib      is i
+   i        is i
+   T        is x
+   p        is i
+   t_dif    is t
+   peDate   is d
+   peDate2  is d
+   timeReq  is t
+   peDate = $date(day)
+   peDate2 = $date(day2)
+   if pedate2 !dp then peDate2 = peDate endif
+   timeReq = $time(timeframe)
+   if timeReq !dp then timeReq = 0:15 endif
+   if staff !dp then staff = $operstaffid endif
+   p.staff[]   is x
+   p.cl[]      is x
+   p.date[]    is d
+   p.time[]    is t
+   p.dur[]     is t
+   p.desc[]    is x
+   
+   dayAvailable = 0
+
+   if $loadlib(lib,"lib_EventIO") > 0 then
+      dayAvailable = 1
+      return
+   endif
+
+   do while 1 = 1   
+   lib:setEvents(staff,,peDate,peDate2)
+   lib:getEventInfo(p.staff[], p.cl[], p.date[],p.time[], p.dur[],p.desc[])
+
+   $form()
+   $textbox(peDate,"CAL",10,10,"Y")
+   $textbox(peDate2,"CAL",10,10,"Y")
+   $textbox(staff,"DB``03",6,6,"Y")
+   $textbox(timeReq,,5,5,"Y")
+   $table(1,"tight","width='100%'")
+   $row()
+   $col()   $text("CID","datatag")
+   i = 0
+   do while i++ < $maxarray(p.staff[])
+
+      if i > 1 then
+         p = i - 1
+         t_dif = p.time[i] - `p.time[p] + p.dur[p]`
+         if t_dif >= timeReq then
+            $row()
+            $col(,,,"99")
+            $text("Available Time: ","error")
+            $text(`p.time[p] + p.dur[p]`)
+            $text(" - ")
+            $text(p.time[i])
+         endif
+      endif      
+      $row()
+      $col()   $text(p.cl[i])
+      $clear(T)
+      if p.cl[i] dp then
+         (void)$dbalpha(2,p.cl[i],T)
+      endif
+      $col()   $text($ncs(T))
+      $col()   $text($fmt(p.date[i],"MM/DD/YY"))
+      $col()   $text($fmt(p.time[i],"HH:MMAP"))
+      $col()   $text($fmt(p.dur[i],"HH:MM"))
+      $col()   $text(p.desc[i])
+   enddo
+
+   if $maxarray(p.staff[]) = 0 then
+      $text("No Planned Events Found","datatag")
+   endif
+   $sendform()
+   if $endbutton = "CANCEL" then return endif
+   enddo
+
+end dayAvailable
+
+
+dynamic FUNCTION getNewStaffDay(newStaff,newDate,title) is null
+   newStaff    is x
+   newDate     is d
+   newDate2    is d
+   newTime     is t
+   title       is x
+   rmi_staff   is x
+   rmi_day     is x
+   rmi_day2    is x
+   rmi_pe      is x
+   rmi_tf      is x
+   T           is x
+   b_next      is x
+   b_prev      is x
+
+   $allowupdate(newStaff,newDate,newDate2)
+   on rmi "dayPreview" do dayPreview(rmi_staff, rmi_day, rmi_day2, rmi_tf, rmi_pe)
+
+   if title !dp then title = "Please Enter Re-scheduling Information" endif
+   if newtime !dp then newTime = 0:15 endif
+   if newDate2 !dp then newDate2 = newDate endif
+
+   do while 1 = 1
+      'get the new staff and date
+      $submitOpt("off", "Next")
+      $cancelOpt("off", "Cancel")
+      $form()
+      $tag("<center>")
+      $text(title,"h1")
+      $br(2)
+      $table(1,"tight","width='50%'")
+      $row()
+      $col()   $text("Doctor")
+      $col()
+      (void)$assignobj("pstaff")
+      $textbox(newStaff, "DB``3",6,6,"Y") $editmsg(newStaff)
+      
+      $row()
+      $col()   $text("Date:")
+      $col()
+      (void)$assignobj("pdate")
+      $textbox(newDate, "CAL",10,10,"Y")
+      (void)$assignobj("pdate2")
+      $textbox(newDate2, "CAL",10,10,"Y")
+      $row()
+      $col()
+      $col()
+      $submit(b_prev,"<<")
+      $ctag("&nbsp;")
+      $submit(b_next,">>")
+
+      $row()
+      '$col("center",,,"99") $text($fmt(newDate,"DAY"),"datatag")
+      $row()
+      $col()   $text("Avail Time:")
+      $col()
+      (void)$assignobj("ptime")
+      $textbox(newTime, "DUR",5,5,"Y")
+
+      $endtable(1)
+
+      T = "<div id='xMsg' class='xMsg error'>Please Wait.  Loading Data...</div>"
+      $ctag(T)
+
+      T = "<div id='xPreview' class='xPreview'></div>"
+      $ctag(T)
+      
+      $tag("</center>")
+      $ctag(js-pePreview)
+      
+      if newStaff dp and newDate dp then
+         T = "<script defer>dayPreview();</script>"
+         $ctag(T)
+      endif
+      
+      $sendform()
+      if $endbutton dp then return endif
+      
+      if b_next dp then newDate++, newDate2++ endif
+      if b_prev dp then newDate--, newDate2-- endif
+   enddo
+end getNewStaffDay
